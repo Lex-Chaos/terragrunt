@@ -64,6 +64,7 @@ require (
 	github.com/gruntwork-io/boilerplate v0.5.7
 	github.com/gruntwork-io/go-commons v0.17.1
 	github.com/gruntwork-io/gruntwork-cli v0.7.0
+	github.com/julienschmidt/httprouter v1.3.0
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8
 	github.com/posener/complete v1.2.3
 	github.com/urfave/cli/v2 v2.25.5

@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	"os"
 
 	"github.com/gruntwork-io/go-commons/errors"
-	"github.com/gruntwork-io/terragrunt/cli"
 	"github.com/gruntwork-io/terragrunt/shell"
+	"github.com/gruntwork-io/terragrunt/terraform/registry"
 	"github.com/gruntwork-io/terragrunt/util"
 )
 
@@ -13,8 +14,11 @@ import (
 func main() {
 	defer errors.Recover(checkForErrorsAndExit)
 
-	app := cli.NewApp(os.Stdout, os.Stderr)
-	err := app.Run(os.Args)
+	server := registry.NewServer()
+	err := server.Run(context.Background())
+
+	// app := cli.NewApp(os.Stdout, os.Stderr)
+	// err := app.Run(os.Args)
 
 	checkForErrorsAndExit(err)
 }
