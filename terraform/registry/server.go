@@ -35,6 +35,7 @@ type Server struct {
 func NewServer() *Server {
 	porviderService := services.NewPorviderService()
 	authorization := &handlers.Authorization{
+		// This is fake data, used only for testing and development.
 		ApiKey: "e2b8996a-ffa5-4feb-9942-33f8804aaf52",
 	}
 
