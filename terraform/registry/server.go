@@ -9,9 +9,12 @@ import (
 
 	"github.com/gruntwork-io/go-commons/errors"
 	"github.com/gruntwork-io/terragrunt/pkg/log"
-	"github.com/gruntwork-io/terragrunt/terraform/registry/controllers/provider"
+	"github.com/gruntwork-io/terragrunt/terraform/registry/controllers"
+	"github.com/gruntwork-io/terragrunt/terraform/registry/handlers"
 	"github.com/gruntwork-io/terragrunt/terraform/registry/router"
+	"github.com/gruntwork-io/terragrunt/terraform/registry/services"
 	"github.com/gruntwork-io/terragrunt/util"
+	"github.com/labstack/echo/v4/middleware"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -30,15 +33,30 @@ type Server struct {
 
 // NewServer returns a new Server instance.
 func NewServer() *Server {
-	providerController := provider.NewController()
+	porviderService := services.NewPorviderService()
+	authorization := &handlers.Authorization{
+		ApiKey: "e2b8996a-ffa5-4feb-9942-33f8804aaf52",
+	}
 
-	router := router.New()
+	providerController := &controllers.ProviderController{
+		Service:       porviderService,
+		Authorization: authorization,
+	}
 
-	v1Group := router.Group("v1")
+	discoveryController := &controllers.DiscoveryController{
+		Endpoints: []controllers.DiscoveryEndpoints{providerController},
+	}
+
+	rootRouter := router.New()
+	rootRouter.Register(discoveryController)
+
+	v1Group := rootRouter.Group("v1")
 	v1Group.Register(providerController)
 
+	rootRouter.Use(middleware.Logger())
+
 	return &Server{
-		handler:         router,
+		handler:         rootRouter,
 		shutdownTimeout: defaultShutdownTimeout,
 		hostname:        defaultHostname,
 		port:            defaultPort,
@@ -71,7 +89,7 @@ func (server *Server) Run(ctx context.Context) error {
 		return nil
 	})
 
-	log.Infof("Terrafrom Registry server is listening on %q", addr)
+	log.Infof("Terrafrom Registry server started, listening on %q", addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return errors.Errorf("error starting Terrafrom Registry server: %w", err)
 	}

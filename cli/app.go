@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gruntwork-io/terragrunt/cli/commands/graph"
+	"github.com/gruntwork-io/terragrunt/terraform/registry"
 
 	"github.com/gruntwork-io/terragrunt/cli/commands/scaffold"
 
@@ -228,6 +229,12 @@ func initialSetup(opts *options.TerragruntOptions) func(ctx *cli.Context) error 
 
 		shell.PrepareConsole(opts)
 
+		server := registry.NewServer()
+		if err := server.Run(ctx); err != nil {
+			return err
+		}
+
+		os.Exit(1)
 		return nil
 	}
 }

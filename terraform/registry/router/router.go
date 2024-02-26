@@ -1,14 +1,13 @@
 package router
 
 import (
-	"net/http"
 	"path"
 
-	"github.com/julienschmidt/httprouter"
+	"github.com/labstack/echo/v4"
 )
 
 type Router struct {
-	*httprouter.Router
+	*echo.Echo
 
 	// prefix is the router prefix
 	prefix string
@@ -16,60 +15,66 @@ type Router struct {
 
 func New() *Router {
 	return &Router{
-		Router: httprouter.New(),
+		Echo:   echo.New(),
 		prefix: "/",
 	}
 }
 
 func (router *Router) Group(prefix string) *Router {
 	return &Router{
-		Router: router.Router,
+		Echo:   router.Echo,
 		prefix: path.Join(router.prefix, prefix),
 	}
 }
 
+func (router *Router) Prefix() string {
+	return router.prefix
+}
+
 func (router *Router) Register(controllers ...Controller) {
 	for _, controller := range controllers {
-		controller.Subscribe(router)
+		controller.Register(router)
 	}
 }
 
-func (router *Router) Get(prefix string, handle httprouter.Handle) {
-	router.Router.GET(path.Join(router.prefix, prefix), handle)
+// GET registers a new GET route for a path with matching handler in the router
+// with optional route-level middleware.
+func (router *Router) GET(prefix string, handle echo.HandlerFunc) {
+	router.Echo.GET(path.Join(router.prefix, prefix), handle)
 }
 
-func (router *Router) Head(prefix string, handle httprouter.Handle) {
-	router.Router.HEAD(path.Join(router.prefix, prefix), handle)
+// HEAD registers a new HEAD route for a path with matching handler in the
+// router with optional route-level middleware.
+func (router *Router) HEAD(prefix string, handle echo.HandlerFunc) {
+	router.Echo.HEAD(path.Join(router.prefix, prefix), handle)
 }
 
-func (router *Router) Options(prefix string, handle httprouter.Handle) {
-	router.Router.OPTIONS(path.Join(router.prefix, prefix), handle)
+// OPTIONS registers a new OPTIONS route for a path with matching handler in the
+// router with optional route-level middleware.
+func (router *Router) OPTIONS(prefix string, handle echo.HandlerFunc) {
+	router.Echo.OPTIONS(path.Join(router.prefix, prefix), handle)
 }
 
-func (router *Router) Post(prefix string, handle httprouter.Handle) {
-	router.Router.POST(path.Join(router.prefix, prefix), handle)
+// POST registers a new POST route for a path with matching handler in the
+// router with optional route-level middleware.
+func (router *Router) POST(prefix string, handle echo.HandlerFunc) {
+	router.Echo.POST(path.Join(router.prefix, prefix), handle)
 }
 
-func (router *Router) Put(prefix string, handle httprouter.Handle) {
-	router.Router.PUT(path.Join(router.prefix, prefix), handle)
+// PUT registers a new PUT route for a path with matching handler in the
+// router with optional route-level middleware.
+func (router *Router) PUT(prefix string, handle echo.HandlerFunc) {
+	router.Echo.PUT(path.Join(router.prefix, prefix), handle)
 }
 
-func (router *Router) Patch(prefix string, handle httprouter.Handle) {
-	router.Router.PATCH(path.Join(router.prefix, prefix), handle)
+// PATCH registers a new PATCH route for a path with matching handler in the
+// router with optional route-level middleware.
+func (router *Router) PATCH(prefix string, handle echo.HandlerFunc) {
+	router.Echo.PATCH(path.Join(router.prefix, prefix), handle)
 }
 
-func (router *Router) Delete(prefix string, handle httprouter.Handle) {
-	router.Router.DELETE(path.Join(router.prefix, prefix), handle)
-}
-
-func (router *Router) Handle(method, prefix string, handle httprouter.Handle) {
-	router.Router.Handle(method, path.Join(router.prefix, prefix), handle)
-}
-
-func (router *Router) Handler(method, prefix string, handler http.Handler) {
-	router.Router.Handler(method, path.Join(router.prefix, prefix), handler)
-}
-
-func (router *Router) HandlerFunc(method, prefix string, handler http.HandlerFunc) {
-	router.Router.HandlerFunc(method, path.Join(router.prefix, prefix), handler)
+// DELETE registers a new DELETE route for a path with matching handler in the router
+// with optional route-level middleware.
+func (router *Router) DELETE(prefix string, handle echo.HandlerFunc) {
+	router.Echo.DELETE(path.Join(router.prefix, prefix), handle)
 }
