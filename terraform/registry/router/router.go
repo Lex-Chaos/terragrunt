@@ -2,6 +2,7 @@ package router
 
 import (
 	"path"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
@@ -34,6 +35,21 @@ func (router *Router) Prefix() string {
 func (router *Router) Register(controllers ...Controller) {
 	for _, controller := range controllers {
 		controller.Register(router)
+	}
+}
+
+// Use adds middleware to the chain which is run after router.
+func (router *Router) Use(middlewares ...echo.MiddlewareFunc) {
+	for _, middleware := range middlewares {
+		middleware := func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(ctx echo.Context) error {
+				if strings.HasPrefix(ctx.Path(), router.prefix) {
+					return middleware(next)(ctx)
+				}
+				return next(ctx)
+			}
+		}
+		router.Echo.Use(middleware)
 	}
 }
 

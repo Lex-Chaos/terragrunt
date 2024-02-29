@@ -1,10 +1,15 @@
 package runall
 
 import (
+	"context"
+
 	"github.com/gruntwork-io/go-commons/errors"
 	"github.com/gruntwork-io/terragrunt/configstack"
 	"github.com/gruntwork-io/terragrunt/options"
 	"github.com/gruntwork-io/terragrunt/shell"
+	"github.com/gruntwork-io/terragrunt/terraform/registry"
+	"github.com/gruntwork-io/terragrunt/util"
+	"golang.org/x/sync/errgroup"
 )
 
 // Known terraform commands that are explicitly not supported in run-all due to the nature of the command. This is
@@ -23,6 +28,31 @@ var runAllDisabledCommands = map[string]string{
 	// - login / logout : Supporting `login` with run-all could be useful when used in conjunction with tfenv and
 	//                    multi-terraform version setups, where multiple terraform versions need to be configured.
 	// - version        : Supporting `version` with run-all could be useful for sanity checking a multi-version setup.
+}
+
+func RunWithRegistry(ctx context.Context, opts *options.TerragruntOptions) error {
+	ctx, cancel := context.WithCancel(ctx)
+	util.RegisterInterruptHandler(func() {
+		cancel()
+	})
+
+	if opts.RegistryToken == "" {
+		// TODO: implement token generation
+	}
+
+	errGroup, ctx := errgroup.WithContext(ctx)
+	errGroup.Go(func() error {
+		server := registry.NewServer(opts.RegistryHostname, opts.RegistryPort, opts.RegistryToken)
+		return server.Run(ctx)
+	})
+
+	if err := Run(opts); err != nil {
+		return err
+	}
+	cancel()
+
+	err := errGroup.Wait()
+	return err
 }
 
 func Run(opts *options.TerragruntOptions) error {

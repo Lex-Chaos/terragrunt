@@ -1,13 +1,18 @@
 package controllers
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
+	"strconv"
 
-	"github.com/gruntwork-io/terragrunt/pkg/log"
 	"github.com/gruntwork-io/terragrunt/terraform/registry/handlers"
+	"github.com/gruntwork-io/terragrunt/terraform/registry/models"
 	"github.com/gruntwork-io/terragrunt/terraform/registry/router"
 	"github.com/gruntwork-io/terragrunt/terraform/registry/services"
 	"github.com/labstack/echo/v4"
@@ -18,30 +23,38 @@ const (
 	providerPrefix = "providers"
 )
 
+// downloadLinkNames contains links that must be modified to forward terraform requests through this server.
+var downloadLinkNames = []string{
+	"download_url",
+	"shasums_url",
+	"shasums_signature_url",
+}
+
+type Downloader interface {
+	PathURL() *url.URL
+}
+
 type ProviderController struct {
-	Service       *services.PorviderService
-	Authorization *handlers.Authorization
+	Authorization   *handlers.Authorization
+	ReverseProxy    *handlers.ReverseProxy
+	Downloader      Downloader
+	ProviderService *services.ProviderService
 
-	paths string
+	path string
 }
 
-// Name implements controllers.DiscoveryService.Name
-func (controller *ProviderController) Name() string {
-	return porviderName
-}
-
-// Paths implements controllers.DiscoveryEndpoints.Paths
-func (controller *ProviderController) Paths() any {
-	return controller.paths
+// Endpoints implements controllers.Endpointer.Endpoints
+func (controller *ProviderController) Endpoints() map[string]any {
+	return map[string]any{porviderName: controller.path}
 }
 
 // Paths implements router.Controller.Register
 func (controller *ProviderController) Register(router *router.Router) {
 	router = router.Group(providerPrefix)
-	controller.paths = router.Prefix()
+	controller.path = router.Prefix()
 
 	if controller.Authorization != nil {
-		router.Use(controller.Authorization.KeyAuth())
+		router.Use(controller.Authorization.MiddlewareFunc())
 	}
 
 	// Api should be compliant with the Terraform Registry Protocol for providers.
@@ -59,28 +72,21 @@ func (controller *ProviderController) versionsAction(ctx echo.Context) error {
 		registryName = ctx.Param("registry_name")
 		namespace    = ctx.Param("namespace")
 		name         = ctx.Param("name")
+
+		providerPlugin = &models.ProviderPlugin{
+			RegistryName: registryName,
+			Namespace:    namespace,
+			Name:         name,
+		}
 	)
 
+	if controller.ProviderService.IsPluginLocked(providerPlugin) {
+		return ctx.NoContent(http.StatusConflict)
+	}
+
 	target := fmt.Sprintf("https://%s/v1/providers/%s/%s/versions", registryName, namespace, name)
-	targetURL, err := url.Parse(target)
-	if err != nil {
-		log.Errorf("unable to parse target URL %q: %v", target, err)
-		return echo.NewHTTPError(http.StatusBadRequest)
-	}
 
-	proxy := &httputil.ReverseProxy{
-		Rewrite: func(r *httputil.ProxyRequest) {
-			r.Out.Host = registryName
-			r.Out.URL = targetURL
-		},
-		ErrorHandler: func(resp http.ResponseWriter, req *http.Request, err error) {
-			log.Errorf("remote %s unreachable, could not forward: %v", targetURL, err)
-			ctx.Error(echo.NewHTTPError(http.StatusServiceUnavailable))
-		},
-	}
-	proxy.ServeHTTP(ctx.Response(), ctx.Request())
-
-	return nil
+	return controller.ReverseProxy.NewRequest(ctx, target)
 }
 
 func (controller *ProviderController) findPackageAction(ctx echo.Context) error {
@@ -91,29 +97,86 @@ func (controller *ProviderController) findPackageAction(ctx echo.Context) error 
 		version      = ctx.Param("version")
 		os           = ctx.Param("os")
 		arch         = ctx.Param("arch")
+
+		target   = fmt.Sprintf("https://%s/v1/providers/%s/%s/%s/download/%s/%s", registryName, namespace, name, version, os, arch)
+		proxyURL = controller.Downloader.PathURL()
+
+		providerPlugin = &models.ProviderPlugin{
+			RegistryName: registryName,
+			Namespace:    namespace,
+			Name:         name,
+			Version:      version,
+			OS:           os,
+			Arch:         arch,
+		}
 	)
 
-	target := fmt.Sprintf("https://%s/v1/providers/%s/%s/%s/download/%s/%s", registryName, namespace, name, version, os, arch)
-	targetURL, err := url.Parse(target)
-	if err != nil {
-		log.Errorf("unable to parse target URL %q: %v", target, err)
-		return echo.NewHTTPError(http.StatusBadRequest)
+	if controller.ProviderService.IsPluginLocked(providerPlugin) {
+		return ctx.NoContent(http.StatusConflict)
 	}
 
-	proxy := &httputil.ReverseProxy{
-		Rewrite: func(r *httputil.ProxyRequest) {
-			r.Out.Host = registryName
-			r.Out.URL = targetURL
-		},
-		ModifyResponse: func(*http.Response) error {
+	return controller.ReverseProxy.
+		WithRewrite(func(req *httputil.ProxyRequest) {
+			// Remove all encoding parameters, otherwise we will not be able to modify the body response without decoding.
+			req.Out.Header.Del("Accept-Encoding")
+		}).
+		WithModifyResponse(func(resp *http.Response) error {
+			if resp.StatusCode != http.StatusOK {
+				return nil
+			}
+
+			var (
+				body   map[string]json.RawMessage
+				buffer = new(bytes.Buffer)
+			)
+
+			if _, err := buffer.ReadFrom(resp.Body); err != nil {
+				return err
+			}
+
+			decoder := json.NewDecoder(buffer)
+			if err := decoder.Decode(&body); err != nil {
+				return err
+			}
+
+			for _, name := range downloadLinkNames {
+				linkBytes, ok := body[name]
+				if !ok || linkBytes == nil {
+					continue
+				}
+				link := string(linkBytes)
+
+				link, err := strconv.Unquote(link)
+				if err != nil {
+					return err
+				}
+				providerPlugin.DownloadLinks = append(providerPlugin.DownloadLinks, link)
+
+				linkURL, err := url.Parse(link)
+				if err != nil {
+					return err
+				}
+
+				// Modify link to htpp://localhost/downloads/remote_host/remote_path
+				linkURL.Path = path.Join(proxyURL.Path, linkURL.Host, linkURL.Path)
+				linkURL.Scheme = proxyURL.Scheme
+				linkURL.Host = proxyURL.Host
+
+				link = strconv.Quote(linkURL.String())
+				body[name] = []byte(link)
+			}
+
+			encoder := json.NewEncoder(buffer)
+			if err := encoder.Encode(body); err != nil {
+				return err
+			}
+
+			resp.Body = io.NopCloser(buffer)
+			resp.ContentLength = int64(buffer.Len())
+
+			controller.ProviderService.AddPlugin(providerPlugin)
 			return nil
-		},
-		ErrorHandler: func(resp http.ResponseWriter, req *http.Request, err error) {
-			log.Errorf("remote %s unreachable, could not forward: %v", targetURL, err)
-			ctx.Error(echo.NewHTTPError(http.StatusServiceUnavailable))
-		},
-	}
-	proxy.ServeHTTP(ctx.Response(), ctx.Request())
 
-	return nil
+		}).
+		NewRequest(ctx, target)
 }

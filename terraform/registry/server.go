@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -13,15 +14,12 @@ import (
 	"github.com/gruntwork-io/terragrunt/terraform/registry/handlers"
 	"github.com/gruntwork-io/terragrunt/terraform/registry/router"
 	"github.com/gruntwork-io/terragrunt/terraform/registry/services"
-	"github.com/gruntwork-io/terragrunt/util"
 	"github.com/labstack/echo/v4/middleware"
 	"golang.org/x/sync/errgroup"
 )
 
 const (
 	defaultShutdownTimeout = time.Second * 30
-	defaultHostname        = "localhost"
-	defaultPort            = 8080
 )
 
 type Server struct {
@@ -32,53 +30,64 @@ type Server struct {
 }
 
 // NewServer returns a new Server instance.
-func NewServer() *Server {
-	porviderService := services.NewPorviderService()
+func NewServer(hostname string, port int, token string) *Server {
+	providerService := &services.ProviderService{}
+
 	authorization := &handlers.Authorization{
-		// This is fake data, used only for testing and development.
-		ApiKey: "e2b8996a-ffa5-4feb-9942-33f8804aaf52",
+		Token: token,
+	}
+
+	reverseProxy := &handlers.ReverseProxy{
+		ServerURL: &url.URL{
+			Scheme: "http",
+			Host:   net.JoinHostPort(hostname, strconv.Itoa(port)),
+		},
+	}
+
+	downloadController := &controllers.DownloadController{
+		Authorization:   authorization,
+		ReverseProxy:    reverseProxy,
+		ProviderService: providerService,
 	}
 
 	providerController := &controllers.ProviderController{
-		Service:       porviderService,
-		Authorization: authorization,
+		Authorization:   authorization,
+		ReverseProxy:    reverseProxy,
+		Downloader:      downloadController,
+		ProviderService: providerService,
 	}
 
 	discoveryController := &controllers.DiscoveryController{
-		Endpoints: []controllers.DiscoveryEndpoints{providerController},
+		Endpointers: []controllers.Endpointer{providerController},
 	}
 
 	rootRouter := router.New()
-	rootRouter.Register(discoveryController)
+	rootRouter.Register(discoveryController, downloadController)
 
 	v1Group := rootRouter.Group("v1")
 	v1Group.Register(providerController)
 
+	// TODO: log middleware
 	rootRouter.Use(middleware.Logger())
 
 	return &Server{
 		handler:         rootRouter,
 		shutdownTimeout: defaultShutdownTimeout,
-		hostname:        defaultHostname,
-		port:            defaultPort,
+		hostname:        hostname,
+		port:            port,
 	}
 }
 
 func (server *Server) Run(ctx context.Context) error {
-	log.Infof("Start Terrafrom Registry server")
+	log.Infof("Start Private Registry")
 
 	addr := net.JoinHostPort(server.hostname, strconv.Itoa(server.port))
 	srv := &http.Server{Addr: addr, Handler: server.handler}
 
-	ctx, cancel := context.WithCancel(ctx)
-	util.RegisterInterruptHandler(func() {
-		cancel()
-	})
-
-	httpGroup, ctx := errgroup.WithContext(ctx)
-	httpGroup.Go(func() error {
+	errGroup, ctx := errgroup.WithContext(ctx)
+	errGroup.Go(func() error {
 		<-ctx.Done()
-		log.Infof("Shutting down Terrafrom Registry server")
+		log.Infof("Shutting down Private Registry")
 
 		ctx, cancel := context.WithTimeout(ctx, server.shutdownTimeout)
 		defer cancel()
@@ -90,12 +99,12 @@ func (server *Server) Run(ctx context.Context) error {
 		return nil
 	})
 
-	log.Infof("Terrafrom Registry server started, listening on %q", addr)
+	log.Infof("Private Registry started, listening on %q", addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return errors.Errorf("error starting Terrafrom Registry server: %w", err)
 	}
-	defer log.Infof("Terrafrom Registry server stoped")
+	defer log.Infof("Private Registry stopped")
 
-	err := httpGroup.Wait()
+	err := errGroup.Wait()
 	return err
 }

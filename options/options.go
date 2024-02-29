@@ -41,6 +41,9 @@ const (
 	DefaultIAMAssumeRoleDuration = 3600
 
 	minCommandLength = 2
+
+	defaultRegistryHostname = "localhost"
+	defaultRegistryPort     = 5758
 )
 
 const ContextKey ctxKey = iota
@@ -263,6 +266,11 @@ type TerragruntOptions struct {
 
 	// Root directory for graph command.
 	GraphRoot string
+
+	ProviderCache    bool
+	RegistryHostname string
+	RegistryPort     int
+	RegistryToken    string
 }
 
 // IAMRoleOptions represents options that are used by Terragrunt to assume an IAM role.
@@ -340,6 +348,8 @@ func NewTerragruntOptions() *TerragruntOptions {
 		RunTerragrunt: func(opts *TerragruntOptions) error {
 			return errors.WithStackTrace(RunTerragruntCommandNotSet)
 		},
+		RegistryHostname: defaultRegistryHostname,
+		RegistryPort:     defaultRegistryPort,
 	}
 }
 

@@ -17,14 +17,49 @@ import (
 
 const (
 	CommandName = "run-all"
+
+	FlagNameTerragruntProviderCache    = "terragrunt-provider-cache"
+	FlagNameTerragruntRegistryHostname = "terragrunt-registry-hostname"
+	FlagNameTerragruntRegistryPort     = "terragrunt-registry-port"
+	FlagNameTerragruntRegistryToken    = "terragrunt-registry-token"
 )
+
+func NewFlags(opts *options.TerragruntOptions) cli.Flags {
+	globalFlags := commands.NewGlobalFlags(opts)
+	globalFlags.Add(
+		&cli.BoolFlag{
+			Name:        FlagNameTerragruntProviderCache,
+			Destination: &opts.ProviderCache,
+			EnvVar:      "TERRAGRUNT_PROVIDER_CACHE",
+			Usage:       "",
+		},
+		&cli.GenericFlag[string]{
+			Name:        FlagNameTerragruntRegistryHostname,
+			Destination: &opts.RegistryHostname,
+			EnvVar:      "TERRAGRUNT_REGISTRY_HOSTNAME",
+			Usage:       "",
+		},
+		&cli.GenericFlag[int]{
+			Name:        FlagNameTerragruntRegistryPort,
+			Destination: &opts.RegistryPort,
+			EnvVar:      "TERRAGRUNT_REGISTRY_Port",
+			Usage:       "",
+		},
+		&cli.GenericFlag[string]{
+			Name:        FlagNameTerragruntRegistryToken,
+			Destination: &opts.RegistryToken,
+			EnvVar:      "TERRAGRUNT_REGISTRY_TOKEN",
+			Usage:       "",
+		})
+	return globalFlags
+}
 
 func NewCommand(opts *options.TerragruntOptions) *cli.Command {
 	return &cli.Command{
 		Name:        CommandName,
 		Usage:       "Run a terraform command against a 'stack' by running the specified command in each subfolder.",
 		Description: "The command will recursively find terragrunt modules in the current directory tree and run the terraform command in dependency order (unless the command is destroy, in which case the command is run in reverse dependency order).",
-		Flags:       commands.NewGlobalFlags(opts),
+		Flags:       NewFlags(opts).Sort(),
 		Subcommands: subCommands(opts).SkipRunning(),
 		Action:      action(opts),
 	}
@@ -42,6 +77,9 @@ func action(opts *options.TerragruntOptions) func(ctx *cli.Context) error {
 			return terraform.Run(opts)
 		}
 
+		if opts.ProviderCache {
+			return RunWithRegistry(ctx.Context, opts.OptionsFromContext(ctx))
+		}
 		return Run(opts.OptionsFromContext(ctx))
 	}
 }
