@@ -29,19 +29,8 @@ import (
 )
 
 const (
-	CommandNameInit                 = "init"
-	CommandNameInitFromModule       = "init-from-module"
-	CommandNamePlan                 = "plan"
-	CommandNameApply                = "apply"
-	CommandNameDestroy              = "destroy"
-	CommandNameValidate             = "validate"
-	CommandNameOutput               = "output"
-	CommandNameProviders            = "providers"
-	CommandNameLock                 = "lock"
 	CommandNameTerragruntReadConfig = "terragrunt-read-config"
 	NullTFVarsFile                  = ".terragrunt-null-vars.auto.tfvars.json"
-
-	TerraformFlagNoColor = "-no-color"
 )
 
 var TerraformCommandsThatUseState = []string{
@@ -257,7 +246,7 @@ func runTerragruntWithConfig(originalTerragruntOptions *options.TerragruntOption
 		return err
 	}
 
-	if util.FirstArg(terragruntOptions.TerraformCliArgs) == CommandNameInit {
+	if util.FirstArg(terragruntOptions.TerraformCliArgs) == terraform.CommandNameInit {
 		if err := prepareInitCommand(terragruntOptions, terragruntConfig); err != nil {
 			return err
 		}
@@ -348,11 +337,11 @@ func confirmActionWithDependentModules(terragruntOptions *options.TerragruntOpti
 // The `providers lock` sub command enables you to ensure that the lock file is
 // fully populated.
 func shouldCopyLockFile(args []string) bool {
-	if util.FirstArg(args) == CommandNameInit {
+	if util.FirstArg(args) == terraform.CommandNameInit {
 		return true
 	}
 
-	if util.FirstArg(args) == CommandNameProviders && util.SecondArg(args) == CommandNameLock {
+	if util.FirstArg(args) == terraform.CommandNameProviders && util.SecondArg(args) == terraform.CommandNameLock {
 		return true
 	}
 	return false
@@ -532,9 +521,11 @@ func needsInit(terragruntOptions *options.TerragruntOptions, terragruntConfig *c
 
 // Returns true if we need to run `terraform init` to download providers
 func providersNeedInit(terragruntOptions *options.TerragruntOptions) bool {
-	providersPath013 := util.JoinPath(terragruntOptions.DataDir(), "plugins")
-	providersPath014 := util.JoinPath(terragruntOptions.DataDir(), "providers")
-	return !(util.FileExists(providersPath013) || util.FileExists(providersPath014))
+	pluginsPath := util.JoinPath(terragruntOptions.DataDir(), "plugins")
+	providersPath := util.JoinPath(terragruntOptions.DataDir(), "providers")
+	terraformLockPath := util.JoinPath(terragruntOptions.WorkingDir, ".terraform.lock.hcl")
+
+	return !(util.FileExists(pluginsPath) || util.FileExists(providersPath)) || !util.FileExists(terraformLockPath)
 }
 
 // Runs the terraform init command to perform what is referred to as Auto-Init in the README.md.
@@ -551,9 +542,8 @@ func providersNeedInit(terragruntOptions *options.TerragruntOptions) bool {
 // This method takes in the "original" terragrunt options which has the unmodified 'WorkingDir' from before downloading the code from the source URL,
 // and the "updated" terragrunt options that will contain the updated 'WorkingDir' into which the code has been downloaded
 func runTerraformInit(originalTerragruntOptions *options.TerragruntOptions, terragruntOptions *options.TerragruntOptions, terragruntConfig *config.TerragruntConfig) error {
-
 	// Prevent Auto-Init if the user has disabled it
-	if util.FirstArg(terragruntOptions.TerraformCliArgs) != CommandNameInit && !terragruntOptions.AutoInit {
+	if util.FirstArg(terragruntOptions.TerraformCliArgs) != terraform.CommandNameInit && !terragruntOptions.AutoInit {
 		terragruntOptions.Logger.Warnf("Detected that init is needed, but Auto-Init is disabled. Continuing with further actions, but subsequent terraform commands may fail.")
 		return nil
 	}
@@ -575,19 +565,19 @@ func runTerraformInit(originalTerragruntOptions *options.TerragruntOptions, terr
 func prepareInitOptions(terragruntOptions *options.TerragruntOptions) *options.TerragruntOptions {
 	// Need to clone the terragruntOptions, so the TerraformCliArgs can be configured to run the init command
 	initOptions := terragruntOptions.Clone(terragruntOptions.TerragruntConfigPath)
-	initOptions.TerraformCliArgs = []string{CommandNameInit}
+	initOptions.TerraformCliArgs = []string{terraform.CommandNameInit}
 	initOptions.WorkingDir = terragruntOptions.WorkingDir
-	initOptions.TerraformCommand = CommandNameInit
+	initOptions.TerraformCommand = terraform.CommandNameInit
 
-	initOutputForCommands := []string{CommandNamePlan, CommandNameApply}
+	initOutputForCommands := []string{terraform.CommandNamePlan, terraform.CommandNameApply}
 	terraformCommand := util.FirstArg(terragruntOptions.TerraformCliArgs)
 	if !collections.ListContainsElement(initOutputForCommands, terraformCommand) {
 		// Since some command can return a json string, it is necessary to suppress output to stdout of the `terraform init` command.
 		initOptions.Writer = io.Discard
 	}
 
-	if collections.ListContainsElement(terragruntOptions.TerraformCliArgs, TerraformFlagNoColor) {
-		initOptions.TerraformCliArgs = append(initOptions.TerraformCliArgs, TerraformFlagNoColor)
+	if collections.ListContainsElement(terragruntOptions.TerraformCliArgs, terraform.TerraformFlagNoColor) {
+		initOptions.TerraformCliArgs = append(initOptions.TerraformCliArgs, terraform.TerraformFlagNoColor)
 	}
 
 	return initOptions
@@ -627,10 +617,10 @@ func remoteStateNeedsInit(remoteState *remote.RemoteState, terragruntOptions *op
 // checkProtectedModule checks if module is protected via the "prevent_destroy" flag
 func checkProtectedModule(terragruntOptions *options.TerragruntOptions, terragruntConfig *config.TerragruntConfig) error {
 	var destroyFlag = false
-	if util.FirstArg(terragruntOptions.TerraformCliArgs) == CommandNameDestroy {
+	if util.FirstArg(terragruntOptions.TerraformCliArgs) == terraform.CommandNameDestroy {
 		destroyFlag = true
 	}
-	if util.ListContainsElement(terragruntOptions.TerraformCliArgs, fmt.Sprintf("-%s", CommandNameDestroy)) {
+	if util.ListContainsElement(terragruntOptions.TerraformCliArgs, fmt.Sprintf("-%s", terraform.CommandNameDestroy)) {
 		destroyFlag = true
 	}
 	if !destroyFlag {
@@ -659,7 +649,7 @@ func filterTerraformExtraArgs(terragruntOptions *options.TerragruntOptions, terr
 		for _, arg_cmd := range arg.Commands {
 			if cmd == arg_cmd {
 				lastArg := util.LastArg(terragruntOptions.TerraformCliArgs)
-				skipVars := (cmd == CommandNameApply || cmd == CommandNameDestroy) && util.IsFile(lastArg)
+				skipVars := (cmd == terraform.CommandNameApply || cmd == terraform.CommandNameDestroy) && util.IsFile(lastArg)
 
 				// The following is a fix for GH-493.
 				// If the first argument is "apply" and the second argument is a file (plan),

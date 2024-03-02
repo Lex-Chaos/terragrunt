@@ -4,44 +4,82 @@ import (
 	"sync"
 
 	"github.com/gruntwork-io/terragrunt/terraform/registry/models"
+	"github.com/gruntwork-io/terragrunt/util"
 )
 
 type ProviderService struct {
-	plugins models.ProviderPlugins
-	mu      sync.RWMutex
+	plugins []*models.ProviderPlugin
+	mu      sync.Mutex
 }
 
-func (service *ProviderService) AddPlugin(plugin *models.ProviderPlugin) {
+func (service *ProviderService) AddNewPlugin(new *models.ProviderPlugin) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
-	if len(service.plugins.Find(plugin)) == 0 {
-		service.plugins = append(service.plugins, plugin)
+	if foundPlugins := service.FindPlugins(new); len(foundPlugins) == 0 {
+		service.plugins = append(service.plugins, new)
 	}
 }
 
-func (service *ProviderService) LockPlugin(plugin *models.ProviderPlugin) bool {
+func (service *ProviderService) LockPlugin(target *models.ProviderPlugin) bool {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
-	if plugins := service.plugins.Find(plugin); len(plugins) == 0 || plugins.IsLocked() {
+	plugins := service.FindPlugins(target)
+	if len(plugins) == 0 {
 		return false
 	}
 
-	service.plugins.Find(plugin).Lock()
+	for _, plugin := range plugins {
+		if !plugin.Lock() {
+			return false
+		}
+	}
+
 	return true
 }
 
-func (service *ProviderService) UnlockPlugin(plugin *models.ProviderPlugin) {
+func (service *ProviderService) UnlockPlugin(target *models.ProviderPlugin) bool {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
-	service.plugins.Find(plugin).Unlock()
+	for _, plugin := range service.FindPlugins(target) {
+		if !plugin.Unlock() {
+			return false
+		}
+	}
+
+	return true
 }
 
-func (service *ProviderService) IsPluginLocked(plugin *models.ProviderPlugin) bool {
-	service.mu.RLock()
-	defer service.mu.RUnlock()
+func (service *ProviderService) IsPluginLocked(target *models.ProviderPlugin) bool {
+	service.mu.Lock()
+	defer service.mu.Unlock()
 
-	return service.plugins.Find(plugin).IsLocked()
+	for _, plugin := range service.FindPlugins(target) {
+		if plugin.IsLocked() {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (service *ProviderService) FindPlugins(target *models.ProviderPlugin) []*models.ProviderPlugin {
+	var foundPlugins []*models.ProviderPlugin
+
+	for _, plugin := range service.plugins {
+		if (plugin.RegistryName == "" || target.RegistryName == "" || plugin.RegistryName == target.RegistryName) &&
+			(plugin.Namespace == "" || target.Namespace == "" || plugin.Namespace == target.Namespace) &&
+			(plugin.Name == "" || target.Name == "" || plugin.Name == target.Name) &&
+			(plugin.Version == "" || target.Version == "" || plugin.Version == target.Version) &&
+			(plugin.OS == "" || target.OS == "" || plugin.OS == target.OS) &&
+			(plugin.Arch == "" || target.Arch == "" || plugin.Arch == target.Arch) &&
+			(len(plugin.DownloadLinks) == 0 || len(target.DownloadLinks) == 0 || util.ListContainsSublist(plugin.DownloadLinks, target.DownloadLinks)) {
+
+			foundPlugins = append(foundPlugins, plugin)
+		}
+	}
+
+	return foundPlugins
 }

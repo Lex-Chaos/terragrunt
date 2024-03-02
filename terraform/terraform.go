@@ -5,6 +5,31 @@ import (
 	"github.com/hashicorp/terraform-config-inspect/tfconfig"
 )
 
+const (
+	CommandNameInit           = "init"
+	CommandNameInitFromModule = "init-from-module"
+	CommandNameImport         = "import"
+	CommandNamePlan           = "plan"
+	CommandNameApply          = "apply"
+	CommandNameDestroy        = "destroy"
+	CommandNameValidate       = "validate"
+	CommandNameOutput         = "output"
+	CommandNameProviders      = "providers"
+	CommandNameState          = "state"
+	CommandNameLock           = "lock"
+	CommandNameTaint          = "taint"
+	CommandNameUntaint        = "untaint"
+	CommandNameConsole        = "console"
+	CommandNameForceUnlock    = "force-unlock"
+
+	EnvNameTFCLIConfigFile                         = "TF_CLI_CONFIG_FILE"
+	EnvNameTFPluginCacheDir                        = "TF_PLUGIN_CACHE_DIR"
+	EnvNameTFPluginCacheMayBreakDependencyLockFile = "TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE"
+	EnvNameTFTokenFmt                              = "TF_TOKEN_%s"
+
+	TerraformFlagNoColor = "-no-color"
+)
+
 // Prefix to use for terraform variables set with environment variables.
 const TFVarPrefix = "TF_VAR"
 

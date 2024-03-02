@@ -13,6 +13,7 @@ import (
 	validateinputs "github.com/gruntwork-io/terragrunt/cli/commands/validate-inputs"
 	"github.com/gruntwork-io/terragrunt/options"
 	"github.com/gruntwork-io/terragrunt/pkg/cli"
+	"github.com/gruntwork-io/terragrunt/util"
 )
 
 const (
@@ -22,6 +23,7 @@ const (
 	FlagNameTerragruntRegistryHostname = "terragrunt-registry-hostname"
 	FlagNameTerragruntRegistryPort     = "terragrunt-registry-port"
 	FlagNameTerragruntRegistryToken    = "terragrunt-registry-token"
+	FlagNameTerragruntRegistryNames    = "terragrunt-registry-names"
 )
 
 func NewFlags(opts *options.TerragruntOptions) cli.Flags {
@@ -34,6 +36,12 @@ func NewFlags(opts *options.TerragruntOptions) cli.Flags {
 			Usage:       "",
 		},
 		&cli.GenericFlag[string]{
+			Name:        FlagNameTerragruntRegistryToken,
+			Destination: &opts.RegistryToken,
+			EnvVar:      "TERRAGRUNT_REGISTRY_TOKEN",
+			Usage:       "",
+		},
+		&cli.GenericFlag[string]{
 			Name:        FlagNameTerragruntRegistryHostname,
 			Destination: &opts.RegistryHostname,
 			EnvVar:      "TERRAGRUNT_REGISTRY_HOSTNAME",
@@ -42,13 +50,13 @@ func NewFlags(opts *options.TerragruntOptions) cli.Flags {
 		&cli.GenericFlag[int]{
 			Name:        FlagNameTerragruntRegistryPort,
 			Destination: &opts.RegistryPort,
-			EnvVar:      "TERRAGRUNT_REGISTRY_Port",
+			EnvVar:      "TERRAGRUNT_REGISTRY_PORT",
 			Usage:       "",
 		},
-		&cli.GenericFlag[string]{
-			Name:        FlagNameTerragruntRegistryToken,
-			Destination: &opts.RegistryToken,
-			EnvVar:      "TERRAGRUNT_REGISTRY_TOKEN",
+		&cli.SliceFlag[string]{
+			Name:        FlagNameTerragruntRegistryNames,
+			Destination: &opts.RegistryNames,
+			EnvVar:      "TERRAGRUNT_REGISTRY_NAMES",
 			Usage:       "",
 		})
 	return globalFlags
@@ -74,11 +82,15 @@ func action(opts *options.TerragruntOptions) func(ctx *cli.Context) error {
 				return cmd.Action(ctx)
 			}
 
+			if opts.ProviderCache {
+				opts.ErrWriter = util.NewFilterWriter(opts.ErrWriter)
+			}
+
 			return terraform.Run(opts)
 		}
 
 		if opts.ProviderCache {
-			return RunWithRegistry(ctx.Context, opts.OptionsFromContext(ctx))
+			return RunWithProviderCache(ctx.Context, opts.OptionsFromContext(ctx))
 		}
 		return Run(opts.OptionsFromContext(ctx))
 	}

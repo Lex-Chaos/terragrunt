@@ -96,7 +96,7 @@ func downloadTerraformSourceIfNecessary(terraformSource *terraform.Source, terra
 	// options struct, set the command to the value the hooks are expecting, and run the download action surrounded by
 	// before and after hooks (if any).
 	terragruntOptionsForDownload := terragruntOptions.Clone(terragruntOptions.TerragruntConfigPath)
-	terragruntOptionsForDownload.TerraformCommand = CommandNameInitFromModule
+	terragruntOptionsForDownload.TerraformCommand = terraform.CommandNameInitFromModule
 	downloadErr := runActionWithHooks("download source", terragruntOptionsForDownload, terragruntConfig, func() error {
 		return downloadSource(terraformSource, terragruntOptions, terragruntConfig)
 	})

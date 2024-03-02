@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	discoveryPrefix = "/.well-known"
+	discoveryPath = "/.well-known"
 )
 
 type Endpointer interface {
@@ -22,7 +22,7 @@ type DiscoveryController struct {
 
 // Paths implements router.Controller.Register
 func (controller *DiscoveryController) Register(router *router.Router) {
-	router = router.Group(discoveryPrefix)
+	router = router.Group(discoveryPath)
 
 	router.GET("/terraform.json", controller.terraformAction)
 }

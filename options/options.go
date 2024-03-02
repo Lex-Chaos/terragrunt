@@ -15,11 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var TERRAFORM_COMMANDS_WITH_SUBCOMMAND = []string{
-	"debug",
-	"force-unlock",
-	"state",
-}
+const ContextKey ctxKey = iota
 
 const (
 	DefaultMaxFoldersToCheck = 100
@@ -46,9 +42,17 @@ const (
 	defaultRegistryPort     = 5758
 )
 
-const ContextKey ctxKey = iota
+var (
+	DefaultWrappedPath = identifyDefaultWrappedExecutable()
 
-var DefaultWrappedPath = identifyDefaultWrappedExecutable()
+	defaultRegistryNames = []string{"registry.terraform.io"}
+)
+
+var TERRAFORM_COMMANDS_WITH_SUBCOMMAND = []string{
+	"debug",
+	"force-unlock",
+	"state",
+}
 
 type ctxKey byte
 
@@ -271,6 +275,7 @@ type TerragruntOptions struct {
 	RegistryHostname string
 	RegistryPort     int
 	RegistryToken    string
+	RegistryNames    []string
 }
 
 // IAMRoleOptions represents options that are used by Terragrunt to assume an IAM role.
@@ -350,6 +355,7 @@ func NewTerragruntOptions() *TerragruntOptions {
 		},
 		RegistryHostname: defaultRegistryHostname,
 		RegistryPort:     defaultRegistryPort,
+		RegistryNames:    defaultRegistryNames,
 	}
 }
 
@@ -477,6 +483,7 @@ func (opts *TerragruntOptions) Clone(terragruntConfigPath string) *TerragruntOpt
 		GraphRoot:                      opts.GraphRoot,
 		ScaffoldVars:                   opts.ScaffoldVars,
 		ScaffoldVarFiles:               opts.ScaffoldVarFiles,
+		ProviderCache:                  opts.ProviderCache,
 	}
 }
 

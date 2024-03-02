@@ -14,7 +14,6 @@ import (
 	"github.com/gruntwork-io/terragrunt/terraform/registry/handlers"
 	"github.com/gruntwork-io/terragrunt/terraform/registry/router"
 	"github.com/gruntwork-io/terragrunt/terraform/registry/services"
-	"github.com/labstack/echo/v4/middleware"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -23,6 +22,10 @@ const (
 )
 
 type Server struct {
+	*controllers.DownloadController
+	*controllers.ProviderController
+	*handlers.Authorization
+
 	handler         http.Handler
 	shutdownTimeout time.Duration
 	hostname        string
@@ -30,12 +33,9 @@ type Server struct {
 }
 
 // NewServer returns a new Server instance.
-func NewServer(hostname string, port int, token string) *Server {
+func NewServer(hostname string, port int) *Server {
 	providerService := &services.ProviderService{}
-
-	authorization := &handlers.Authorization{
-		Token: token,
-	}
+	authorization := &handlers.Authorization{}
 
 	reverseProxy := &handlers.ReverseProxy{
 		ServerURL: &url.URL{
@@ -45,7 +45,6 @@ func NewServer(hostname string, port int, token string) *Server {
 	}
 
 	downloadController := &controllers.DownloadController{
-		Authorization:   authorization,
 		ReverseProxy:    reverseProxy,
 		ProviderService: providerService,
 	}
@@ -67,10 +66,11 @@ func NewServer(hostname string, port int, token string) *Server {
 	v1Group := rootRouter.Group("v1")
 	v1Group.Register(providerController)
 
-	// TODO: log middleware
-	rootRouter.Use(middleware.Logger())
-
 	return &Server{
+		DownloadController: downloadController,
+		ProviderController: providerController,
+		Authorization:      authorization,
+
 		handler:         rootRouter,
 		shutdownTimeout: defaultShutdownTimeout,
 		hostname:        hostname,

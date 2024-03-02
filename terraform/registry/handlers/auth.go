@@ -11,7 +11,7 @@ type Authorization struct {
 }
 
 func (auth *Authorization) Auth(bearerToken string, ctx echo.Context) (bool, error) {
-	if bearerToken != auth.Token {
+	if auth.Token != "" && bearerToken != auth.Token {
 		return false, errors.Errorf("Authorization: token either expired or inexistent")
 	}
 
