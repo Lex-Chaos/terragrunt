@@ -13,7 +13,6 @@ import (
 	validateinputs "github.com/gruntwork-io/terragrunt/cli/commands/validate-inputs"
 	"github.com/gruntwork-io/terragrunt/options"
 	"github.com/gruntwork-io/terragrunt/pkg/cli"
-	"github.com/gruntwork-io/terragrunt/util"
 )
 
 const (
@@ -80,10 +79,6 @@ func action(opts *options.TerragruntOptions) func(ctx *cli.Context) error {
 				ctx := ctx.WithValue(options.ContextKey, opts)
 
 				return cmd.Action(ctx)
-			}
-
-			if opts.ProviderCache {
-				opts.ErrWriter = util.NewFilterWriter(opts.ErrWriter)
 			}
 
 			return terraform.Run(opts)

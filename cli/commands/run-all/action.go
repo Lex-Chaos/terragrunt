@@ -1,21 +1,11 @@
 package runall
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"path"
-	"strings"
-
-	"github.com/google/uuid"
 	"github.com/gruntwork-io/go-commons/errors"
 	"github.com/gruntwork-io/terragrunt/configstack"
 	"github.com/gruntwork-io/terragrunt/options"
 	"github.com/gruntwork-io/terragrunt/shell"
 	"github.com/gruntwork-io/terragrunt/terraform"
-	"github.com/gruntwork-io/terragrunt/terraform/registry"
-	"github.com/gruntwork-io/terragrunt/util"
-	"golang.org/x/sync/errgroup"
 )
 
 // Known terraform commands that are explicitly not supported in run-all due to the nature of the command. This is
@@ -34,79 +24,6 @@ var runAllDisabledCommands = map[string]string{
 	// - login / logout : Supporting `login` with run-all could be useful when used in conjunction with tfenv and
 	//                    multi-terraform version setups, where multiple terraform versions need to be configured.
 	// - version        : Supporting `version` with run-all could be useful for sanity checking a multi-version setup.
-}
-
-func createLocalCLIConfigFileForPluginCache(opts *options.TerragruntOptions) error {
-	cfg, err := terraform.LoadConfig()
-	if err != nil {
-		return err
-	}
-
-	if cfg.PluginCacheDir == "" {
-		cfg.PluginCacheDir = path.Join(opts.DownloadDir, "plugin-cache")
-
-		if err := os.MkdirAll(cfg.PluginCacheDir, os.ModePerm); err != nil {
-			return errors.WithStackTrace(err)
-		}
-	}
-
-	for _, registryName := range opts.RegistryNames {
-		host := terraform.NewConfigHost(map[string]any{
-			"providers.v1": fmt.Sprintf("http://%s:%d/v1/providers/%s/", opts.RegistryHostname, opts.RegistryPort, registryName),
-		})
-		cfg.AddHost(registryName, host)
-	}
-
-	cliConfigFile := path.Join(opts.DownloadDir, ".terraformrc")
-	if err := cfg.SaveConfig(cliConfigFile); err != nil {
-		return err
-	}
-	opts.Env[terraform.EnvNameTFCLIConfigFile] = cliConfigFile
-
-	return nil
-}
-
-func RunWithProviderCache(ctx context.Context, opts *options.TerragruntOptions) error {
-	if opts.RegistryToken == "" {
-		opts.RegistryToken = fmt.Sprintf("x-api-key:%s", uuid.New().String())
-	}
-
-	for _, registryName := range opts.RegistryNames {
-		envName := fmt.Sprintf(terraform.EnvNameTFTokenFmt, strings.ReplaceAll(registryName, ".", "_"))
-		opts.Env[envName] = opts.RegistryToken
-	}
-
-	if err := createLocalCLIConfigFileForPluginCache(opts); err != nil {
-		return err
-	}
-
-	registryServer := registry.NewServer(opts.RegistryHostname, opts.RegistryPort)
-	registryServer.Token = opts.RegistryToken
-
-	ctx, cancel := context.WithCancel(ctx)
-	util.RegisterInterruptHandler(func() {
-		cancel()
-	})
-
-	errGroup, ctx := errgroup.WithContext(ctx)
-	errGroup.Go(func() error {
-		return registryServer.Run(ctx)
-	})
-
-	for {
-		downloadedPlugins := registryServer.DownloadedPlugins
-
-		if err := Run(opts); err == nil {
-			break
-		} else if len(registryServer.DownloadedPlugins) == len(downloadedPlugins) {
-			return err
-		}
-
-		opts.Env[terraform.EnvNameTFPluginCacheMayBreakDependencyLockFile] = "1"
-	}
-	cancel()
-
-	return errGroup.Wait()
 }
 
 func Run(opts *options.TerragruntOptions) error {

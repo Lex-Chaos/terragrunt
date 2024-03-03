@@ -22,10 +22,6 @@ const (
 )
 
 type Server struct {
-	*controllers.DownloadController
-	*controllers.ProviderController
-	*handlers.Authorization
-
 	handler         http.Handler
 	shutdownTimeout time.Duration
 	hostname        string
@@ -33,9 +29,10 @@ type Server struct {
 }
 
 // NewServer returns a new Server instance.
-func NewServer(hostname string, port int) *Server {
-	providerService := &services.ProviderService{}
-	authorization := &handlers.Authorization{}
+func NewServer(hostname string, port int, token string, providerService *services.ProviderService) *Server {
+	authorization := &handlers.Authorization{
+		Token: token,
+	}
 
 	reverseProxy := &handlers.ReverseProxy{
 		ServerURL: &url.URL{
@@ -67,10 +64,6 @@ func NewServer(hostname string, port int) *Server {
 	v1Group.Register(providerController)
 
 	return &Server{
-		DownloadController: downloadController,
-		ProviderController: providerController,
-		Authorization:      authorization,
-
 		handler:         rootRouter,
 		shutdownTimeout: defaultShutdownTimeout,
 		hostname:        hostname,

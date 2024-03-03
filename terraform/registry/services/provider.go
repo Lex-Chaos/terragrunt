@@ -1,85 +1,93 @@
 package services
 
 import (
+	"context"
+	"net/http"
 	"sync"
 
 	"github.com/gruntwork-io/terragrunt/terraform/registry/models"
-	"github.com/gruntwork-io/terragrunt/util"
+)
+
+const (
+	defaultLockedPluginHTTPStatus = http.StatusConflict
 )
 
 type ProviderService struct {
-	plugins []*models.ProviderPlugin
-	mu      sync.Mutex
+	LockedPluginHTTPStatus int
+
+	lockedPlugins    models.ProviderPlugins
+	releasedPluginCh chan *models.ProviderPlugin
+	pluginMu         sync.RWMutex
 }
 
-func (service *ProviderService) AddNewPlugin(new *models.ProviderPlugin) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-
-	if foundPlugins := service.FindPlugins(new); len(foundPlugins) == 0 {
-		service.plugins = append(service.plugins, new)
+func NewProviderService() *ProviderService {
+	return &ProviderService{
+		LockedPluginHTTPStatus: defaultLockedPluginHTTPStatus,
+		releasedPluginCh:       make(chan *models.ProviderPlugin),
 	}
+}
+
+func (service *ProviderService) LockedPlugins() models.ProviderPlugins {
+	service.pluginMu.RLock()
+	defer service.pluginMu.RUnlock()
+
+	return service.lockedPlugins
+}
+
+func (service *ProviderService) IsPluginLocked(target *models.ProviderPlugin) bool {
+	service.pluginMu.RLock()
+	defer service.pluginMu.RUnlock()
+
+	if plugin := service.lockedPlugins.Find(target); plugin != nil {
+		return true
+	}
+	return false
 }
 
 func (service *ProviderService) LockPlugin(target *models.ProviderPlugin) bool {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	service.pluginMu.Lock()
+	defer service.pluginMu.Unlock()
 
-	plugins := service.FindPlugins(target)
-	if len(plugins) == 0 {
+	if plugin := service.lockedPlugins.Find(target); plugin != nil {
 		return false
 	}
 
-	for _, plugin := range plugins {
-		if !plugin.Lock() {
-			return false
-		}
-	}
-
+	service.lockedPlugins = append(service.lockedPlugins, target)
 	return true
 }
 
 func (service *ProviderService) UnlockPlugin(target *models.ProviderPlugin) bool {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	service.pluginMu.Lock()
+	defer service.pluginMu.Unlock()
 
-	for _, plugin := range service.FindPlugins(target) {
-		if !plugin.Unlock() {
-			return false
-		}
-	}
+	if plugin := service.lockedPlugins.Find(target); plugin != nil {
+		plugin.Links = plugin.Links.Remove(target.Links)
 
-	return true
-}
+		if len(plugin.Links) == 0 {
+			service.lockedPlugins = service.lockedPlugins.Remove(plugin)
 
-func (service *ProviderService) IsPluginLocked(target *models.ProviderPlugin) bool {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-
-	for _, plugin := range service.FindPlugins(target) {
-		if plugin.IsLocked() {
-			return true
+			for {
+				select {
+				case service.releasedPluginCh <- plugin:
+				default:
+					return true
+				}
+			}
 		}
 	}
 
 	return false
 }
 
-func (service *ProviderService) FindPlugins(target *models.ProviderPlugin) []*models.ProviderPlugin {
-	var foundPlugins []*models.ProviderPlugin
-
-	for _, plugin := range service.plugins {
-		if (plugin.RegistryName == "" || target.RegistryName == "" || plugin.RegistryName == target.RegistryName) &&
-			(plugin.Namespace == "" || target.Namespace == "" || plugin.Namespace == target.Namespace) &&
-			(plugin.Name == "" || target.Name == "" || plugin.Name == target.Name) &&
-			(plugin.Version == "" || target.Version == "" || plugin.Version == target.Version) &&
-			(plugin.OS == "" || target.OS == "" || plugin.OS == target.OS) &&
-			(plugin.Arch == "" || target.Arch == "" || plugin.Arch == target.Arch) &&
-			(len(plugin.DownloadLinks) == 0 || len(target.DownloadLinks) == 0 || util.ListContainsSublist(plugin.DownloadLinks, target.DownloadLinks)) {
-
-			foundPlugins = append(foundPlugins, plugin)
+func (service *ProviderService) WaitReleasePlugin(ctx context.Context, target *models.ProviderPlugin) {
+	for {
+		select {
+		case releasedPlugin := <-service.releasedPluginCh:
+			if releasedPlugin.Match(target) {
+				return
+			}
+		case <-ctx.Done():
+			return
 		}
 	}
-
-	return foundPlugins
 }

@@ -21,13 +21,6 @@ const (
 	providerPath = "/providers"
 )
 
-// downloadLinkNames contains links that must be modified to forward terraform requests through this server.
-var downloadLinkNames = []string{
-	"download_url",
-	"shasums_url",
-	"shasums_signature_url",
-}
-
 type Downloader interface {
 	PluginURL() *url.URL
 }
@@ -72,6 +65,15 @@ func (controller *ProviderController) versionsAction(ctx echo.Context) error {
 		name         = ctx.Param("name")
 	)
 
+	providerPlugin := &models.ProviderPlugin{
+		RegistryName: registryName,
+		Namespace:    namespace,
+		Name:         name,
+	}
+	if controller.ProviderService.IsPluginLocked(providerPlugin) {
+		return ctx.NoContent(controller.ProviderService.LockedPluginHTTPStatus)
+	}
+
 	target := fmt.Sprintf("https://%s/v1/providers/%s/%s/versions", registryName, namespace, name)
 	return controller.ReverseProxy.NewRequest(ctx, target)
 }
@@ -96,8 +98,8 @@ func (controller *ProviderController) findPluginAction(ctx echo.Context) error {
 		OS:           os,
 		Arch:         arch,
 	}
-	if controller.ProviderService.IsPluginLocked(providerPlugin) {
-		return ctx.NoContent(http.StatusConflict)
+	if controller.ProviderService.LockPlugin(providerPlugin) {
+		return ctx.NoContent(controller.ProviderService.LockedPluginHTTPStatus)
 	}
 
 	target := fmt.Sprintf("https://%s/v1/providers/%s/%s/%s/download/%s/%s", registryName, namespace, name, version, os, arch)
@@ -110,8 +112,8 @@ func (controller *ProviderController) findPluginAction(ctx echo.Context) error {
 			var body map[string]json.RawMessage
 
 			return modifyJSONBody(resp, &body, func() error {
-				for _, name := range downloadLinkNames {
-					linkBytes, ok := body[name]
+				for _, name := range models.ProviderPluginDownloadLinkNames {
+					linkBytes, ok := body[string(name)]
 					if !ok || linkBytes == nil {
 						continue
 					}
@@ -121,8 +123,7 @@ func (controller *ProviderController) findPluginAction(ctx echo.Context) error {
 					if err != nil {
 						return err
 					}
-
-					providerPlugin.DownloadLinks = append(providerPlugin.DownloadLinks, link)
+					providerPlugin.Links = append(providerPlugin.Links, link)
 
 					linkURL, err := url.Parse(link)
 					if err != nil {
@@ -135,10 +136,8 @@ func (controller *ProviderController) findPluginAction(ctx echo.Context) error {
 					linkURL.Host = proxyURL.Host
 
 					link = strconv.Quote(linkURL.String())
-					body[name] = []byte(link)
+					body[string(name)] = []byte(link)
 				}
-
-				controller.ProviderService.AddNewPlugin(providerPlugin)
 
 				return nil
 			})

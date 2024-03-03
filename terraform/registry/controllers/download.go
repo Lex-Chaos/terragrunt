@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"fmt"
-	"net/http"
 	"net/url"
 	"path"
 
@@ -22,8 +21,6 @@ const (
 type DownloadController struct {
 	ReverseProxy    *handlers.ReverseProxy
 	ProviderService *services.ProviderService
-
-	DownloadedPlugins []string
 
 	basePath string
 }
@@ -48,13 +45,13 @@ func (controller *DownloadController) downloadPluginAction(ctx echo.Context) err
 		remoteHost = ctx.Param("remote_host")
 		remotePath = ctx.Param("remote_path")
 	)
-	target := fmt.Sprintf("https://%s/%s", remoteHost, remotePath)
 
-	providerPackage := &models.ProviderPlugin{DownloadLinks: []string{target}}
-	if ok := controller.ProviderService.LockPlugin(providerPackage); !ok {
-		return ctx.NoContent(http.StatusConflict)
+	target := fmt.Sprintf("https://%s/%s", remoteHost, remotePath)
+	providerPlugin := &models.ProviderPlugin{Links: []string{target}}
+
+	if !controller.ProviderService.IsPluginLocked(providerPlugin) {
+		return ctx.NoContent(controller.ProviderService.LockedPluginHTTPStatus)
 	}
-	defer controller.ProviderService.UnlockPlugin(providerPackage)
 
 	log.Debugf("Registry: start download %q", target)
 	defer log.Debugf("Registry: finish download %q", target)
@@ -63,6 +60,6 @@ func (controller *DownloadController) downloadPluginAction(ctx echo.Context) err
 		return err
 	}
 
-	controller.DownloadedPlugins = append(controller.DownloadedPlugins, target)
+	controller.ProviderService.UnlockPlugin(providerPlugin)
 	return nil
 }
